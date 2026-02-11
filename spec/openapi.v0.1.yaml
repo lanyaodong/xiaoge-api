@@ -1,0 +1,308 @@
+OpenAPI v0.1 — Xiaoge Longevity Assistant
+
+
+openapi: 3.0.3
+info:
+  title: Xiaoge Longevity Assistant API
+  version: "0.1"
+  description: |
+    Xiaoge v0.1 OpenAPI (Draft).
+    Scope:
+    - Biomarker observations ingestion
+    - System state assessment retrieval
+    - Recommendations retrieval
+    - Product/service discovery
+
+servers:
+- url: https://api.xiaoge.local/v0
+description: Local / Dev
+  
+tags:
+- name: Observations
+- name: SystemStates
+- name: Recommendations
+- name: Products
+- name: Meta
+  
+components:
+  schemas:
+
+    ### Enums ###
+    SystemCode:
+      type: string
+      enum: [energy, metabolic, cardiopulmonary, musculoskeletal, neurocognitive, repair_immune]
+
+    SystemState:
+      type: string
+      enum: [ideal, normal, limited, impaired, invisible]
+
+    ObservationMedium:
+      type: string
+      enum: [bio_sample, device, questionnaire, imaging, clinical_exam, estimate, unknown]
+
+    SampleType:
+      type: string
+      enum:
+        - blood
+        - urine
+        - stool
+        - saliva
+        - buccal_epithelial
+        - cervical_fluid
+        - pleural_fluid
+        - respiratory_mucosa
+        - other
+        - unknown
+
+    SampleMethod:
+      type: string
+      enum: [venous, capillary, cgm, wearable, cuff_bp, imaging, questionnaire, estimate, unknown]
+
+    FreshnessState:
+      type: string
+      enum: [fresh, stale, expired, unknown]
+
+    AccuracyTier:
+      type: string
+      enum: [gold, standard, low, unknown]
+
+    RecommendationType:
+      type: string
+      enum: [behavior, data_completion, product_service]
+
+    ### Core Objects ###
+
+    BiomarkerObservationInput:
+      type: object
+      required:
+        - biomarker_code
+        - measured_at
+      properties:
+        biomarker_code:
+          type: string
+          description: Biomarker code (e.g. rhr, fpg)
+        observation_medium:
+          $ref: "#/components/schemas/ObservationMedium"
+        sample_type:
+          $ref: "#/components/schemas/SampleType"
+        sample_method:
+          $ref: "#/components/schemas/SampleMethod"
+        sampling_context:
+          type: object
+          additionalProperties: true
+          description: |
+            Context such as fasting_state, time_of_day, posture, exercise_state
+        value_num:
+          type: number
+        value_text:
+          type: string
+        value_json:
+          type: object
+          additionalProperties: true
+        unit:
+          type: string
+        measured_at:
+          type: string
+          format: date-time
+        data_source_id:
+          type: string
+          format: uuid
+        freshness_state:
+          $ref: "#/components/schemas/FreshnessState"
+        accuracy_tier:
+          $ref: "#/components/schemas/AccuracyTier"
+
+    BiomarkerObservation:
+      allOf:
+        - $ref: "#/components/schemas/BiomarkerObservationInput"
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            created_at:
+              type: string
+              format: date-time
+
+    SystemStateSummary:
+      type: object
+      properties:
+        system_code:
+          $ref: "#/components/schemas/SystemCode"
+        system_state:
+          $ref: "#/components/schemas/SystemState"
+        explanation:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+
+    Recommendation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        system_code:
+          $ref: "#/components/schemas/SystemCode"
+        recommendation_type:
+          $ref: "#/components/schemas/RecommendationType"
+        priority:
+          type: integer
+          description: Lower number = higher priority
+        title:
+          type: string
+        description:
+          type: string
+        rationale:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    ProductService:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        brand:
+          type: string
+        applicable_system_code:
+          $ref: "#/components/schemas/SystemCode"
+        member_price_cny:
+          type: number
+        market_price_cny:
+          type: number
+        has_member_discount:
+          type: boolean
+        commission_cny:
+          type: number
+        purchase_url:
+          type: string
+        compliance_notes:
+          type: string
+        evidence_links:
+          type: array
+          items:
+            type: string
+
+paths:
+
+Observations
+  /observations:
+    post:
+      tags: [Observations]
+      summary: Upload a single biomarker observation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BiomarkerObservationInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BiomarkerObservation"
+
+  /observations/batch:
+    post:
+      tags: [Observations]
+      summary: Upload multiple biomarker observations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/BiomarkerObservationInput"
+      responses:
+        "201":
+          description: Created
+
+System States
+  /system-states:
+    get:
+      tags: [SystemStates]
+      summary: Get all system states
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SystemStateSummary"
+
+  /system-states/{system_code}:
+    get:
+      tags: [SystemStates]
+      summary: Get single system state
+      parameters:
+        - name: system_code
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/SystemCode"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStateSummary"
+
+  /assessments/refresh:
+    post:
+      tags: [SystemStates]
+      summary: Trigger system assessment refresh
+      responses:
+        "202":
+          description: Accepted
+
+Recommendations
+  /recommendations:
+    get:
+      tags: [Recommendations]
+      summary: Get recommendations
+      parameters:
+        - name: system_code
+          in: query
+          schema:
+            $ref: "#/components/schemas/SystemCode"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Recommendation"
+
+Products
+  /products:
+    get:
+      tags: [Products]
+      summary: Get product/services by system
+      parameters:
+        - name: system_code
+          in: query
+          schema:
+            $ref: "#/components/schemas/SystemCode"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProductService"

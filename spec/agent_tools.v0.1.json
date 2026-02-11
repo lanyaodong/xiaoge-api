@@ -1,0 +1,286 @@
+
+
+---
+
+# Agent Tool 定义 v0.1（Xiaoge v0 API）
+
+## 全局约定
+
+* `base_url`: `http://127.0.0.1:8000`
+* 时间：`measured_at` 用 ISO8601（带时区），例如：`2026-02-10T16:40:00+08:00`
+* `user_id`：UUID 字符串
+* 错误处理：
+
+  * `422`：输入校验失败或触发数据库约束（例如 bio_sample 缺 sample_type）
+  * `500`：服务端异常（一般需要看日志）
+
+---
+
+## Tool 0：health_check
+
+用于 Agent 在执行前确认服务在线（非业务必需，但强烈建议在链路首步跑一次）。
+
+**Method**: GET
+**Path**: `/health`
+
+**Input**
+
+```json
+{}
+```
+
+**Output**
+
+```json
+{ "状态": true, "环境": "开发" }
+```
+
+---
+
+## Tool 1：db_health_check
+
+用于确认 DB 连接正常（强烈建议在写入观测前跑一次）。
+
+**Method**: GET
+**Path**: `/health/db`
+
+**Input**
+
+```json
+{}
+```
+
+**Output**
+
+```json
+{ "ok": true, "db": "connected", "select1": 1 }
+```
+
+---
+
+## Tool 2：create_observation
+
+写入一条观测（一次只写 1 条；批量请在 Agent 里循环调用）。
+
+**Method**: POST
+**Path**: `/observations`
+
+**Input（ObservationIn）**
+
+```json
+{
+  "user_id": "11111111-1111-1111-1111-111111111111",
+  "biomarker_code": "rhr",
+  "data_source_id": null,
+  "observation_medium": "device",
+  "sample_type": null,
+  "sample_method": "wearable",
+  "sampling_context": { "state": "resting" },
+  "value_num": 58,
+  "value_text": null,
+  "value_json": {},
+  "unit": "bpm",
+  "measured_at": "2026-02-10T16:40:00+08:00",
+  "freshness_state": "fresh",
+  "accuracy_tier": "standard"
+}
+```
+
+**Output（ObservationOut）**
+
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "biomarker_code": "string",
+  "observation_medium": "device|bio_sample",
+  "sample_type": "blood|...|null",
+  "sample_method": "wearable|venous|...",
+  "sampling_context": {},
+  "value_num": 0,
+  "value_text": null,
+  "value_json": {},
+  "unit": "string",
+  "measured_at": "2026-02-10T16:40:00+08:00",
+  "freshness_state": "fresh|...",
+  "accuracy_tier": "standard|..."
+}
+```
+
+**Agent 侧强约束（写入前自检）**
+
+* `observation_medium = "device"` → `sample_type` 应为 `null`
+* `observation_medium = "bio_sample"` → `sample_type` **必须非空**（你库里有 CHECK）
+* `value_num/value_text/value_json` 三选一为主：v0 可以都给，但建议只给一个主值（避免歧义）
+
+---
+
+## Tool 3：get_latest_observation
+
+读取某个 biomarker 的最近一次观测（用于确认写入成功、也用于评估前取证据）。
+
+**Method**: GET
+**Path**: `/observations/latest`
+**Query**: `user_id`, `biomarker_code`
+
+**Input**
+
+```json
+{
+  "user_id": "11111111-1111-1111-1111-111111111111",
+  "biomarker_code": "rhr"
+}
+```
+
+**Output**
+
+* 找到：返回 ObservationOut（同 Tool2 输出结构）
+* 找不到：返回 `null`
+
+**Agent 侧规则**
+
+* 如果返回 `null`：不要“臆测缺失数据”，应提示用户缺数据并建议补测/写入
+
+---
+
+## Tool 4：refresh_assessments
+
+触发对一个或多个系统的“刷新评估”（v0 占位：核心标志物齐→normal，否则 invisible/limited）。
+
+**Method**: POST
+**Path**: `/assessments/refresh`
+
+**Input**
+
+```json
+{
+  "user_id": "11111111-1111-1111-1111-111111111111",
+  "system_codes": ["energy", "metabolic"]
+}
+```
+
+**Output（数组）**
+
+```json
+[
+  {
+    "user_id": "uuid",
+    "system_code": "energy",
+    "system_state": "invisible|limited|normal|...",
+    "confidence_note": "string",
+    "evidence": { "missing_core": ["rhr", "hrv"] }
+  },
+  {
+    "user_id": "uuid",
+    "system_code": "metabolic",
+    "system_state": "normal",
+    "confidence_note": "string",
+    "evidence": { "missing_core": [] }
+  }
+]
+```
+
+**Agent 侧规则**
+
+* refresh 之后，应立即调用 Tool5 获取系统状态（以服务器实际状态为准）
+* `missing_core` 非空 → 给出“缺什么、怎么补测”的下一步（不做诊断）
+
+---
+
+## Tool 5：get_system_state
+
+读取某个系统的当前状态（给用户展示“系统评分层”的结果）。
+
+**Method**: GET
+**Path**: `/systems/{system_code}/state`
+**Path param**: `system_code`
+**Query**: `user_id`
+
+**Input**
+
+```json
+{
+  "system_code": "metabolic",
+  "user_id": "11111111-1111-1111-1111-111111111111"
+}
+```
+
+**Output**
+
+```json
+{
+  "user_id": "uuid",
+  "system_code": "metabolic",
+  "system_state": "invisible|limited|normal|...",
+  "confidence_note": "string",
+  "evidence": { "missing_core": [] }
+}
+```
+
+---
+
+## Tool 6：get_recommendations
+
+取某系统的推荐（v0 你现在实现的是占位：带商品映射）。
+
+**Method**: GET
+**Path**: `/recommendations`
+**Query**: `user_id`, `system_code`
+
+**Input**
+
+```json
+{
+  "user_id": "11111111-1111-1111-1111-111111111111",
+  "system_code": "metabolic"
+}
+```
+
+**Output（数组）**
+
+```json
+[
+  {
+    "user_id": "uuid",
+    "system_code": "metabolic",
+    "title": "string",
+    "items": ["string"],
+    "products": [
+      {
+        "id": "uuid",
+        "name": "string",
+        "product_type": "external_curated|...",
+        "applicable_system_code": "energy|metabolic|...",
+        "member_price_cny": null,
+        "market_price_cny": null,
+        "commission_cny": "0.00",
+        "purchase_url": null,
+        "mapped_system_code": "metabolic"
+      }
+    ]
+  }
+]
+```
+
+**Agent 侧规则**
+
+* 只在 `system_state != invisible` 时给推荐；若 invisible，先引导补核心指标
+* 商品只是建议项：输出时要标注“占位/示例/非医疗建议”
+
+---
+
+# 典型调用顺序（最小闭环 Playbook）
+
+## 场景：用户写入 2 条观测（rhr + fpg）→ 获取 metabolic 状态与推荐
+
+1. `db_health_check`
+2. `create_observation`（rhr）
+3. `create_observation`（fpg）
+4. `refresh_assessments`（system_codes: ["metabolic"] 或 ["energy","metabolic"]）
+5. `get_system_state`（metabolic）
+6. 若 `system_state != invisible` → `get_recommendations`（metabolic）
+   否则：提示缺失的 `missing_core` 并建议补测
+
+---
+
+
