@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: xiaoge
+          POSTGRES_PASSWORD: xiaoge_pwd
+          POSTGRES_DB: xiaoge_v0
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd="pg_isready -U xiaoge -d xiaoge_v0"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      XIAOGE_BASE_URL: http://127.0.0.1:8000
+      XIAOGE_USER_ID: 11111111-1111-1111-1111-111111111111
+      DATABASE_URL: postgresql+asyncpg://xiaoge:xiaoge_pwd@127.0.0.1:5433/xiaoge_v0
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Apply schema snapshot
+        run: |
+          psql "postgresql://xiaoge:xiaoge_pwd@127.0.0.1:5433/xiaoge_v0" -f spec/xiaoge_v0_schema_snapshot_2026-02-07_updated.sql
+
+      - name: Start API
+        run: |
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --log-level info &
+          sleep 2
+          curl -sSf http://127.0.0.1:8000/health
+          curl -sSf http://127.0.0.1:8000/health/db
+
+      - name: Run tests
+        run: |
+          pytest -q
