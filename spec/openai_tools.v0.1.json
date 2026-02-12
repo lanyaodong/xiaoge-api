@@ -1,0 +1,169 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "health_check",
+      "description": "Check API server is alive.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "db_health_check",
+      "description": "Check database connectivity.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_observation",
+      "description": "Create a single biomarker observation (write to DB). One call = one row.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "user_id",
+          "biomarker_code",
+          "observation_medium",
+          "sample_method",
+          "sampling_context",
+          "value_num",
+          "value_json",
+          "unit",
+          "measured_at",
+          "freshness_state",
+          "accuracy_tier"
+        ],
+        "properties": {
+          "user_id": { "type": "string", "format": "uuid" },
+          "biomarker_code": { "type": "string", "minLength": 1 },
+          "data_source_id": { "type": ["string", "null"], "format": "uuid" },
+
+          "observation_medium": {
+            "type": "string",
+            "enum": ["device", "bio_sample"]
+          },
+
+          "sample_type": {
+            "type": ["string", "null"],
+            "description": "Must be non-null when observation_medium=bio_sample.",
+            "enum": [null, "blood", "saliva", "urine", "stool", "other"]
+          },
+
+          "sample_method": {
+            "type": "string",
+            "enum": ["wearable", "venous", "capillary", "saliva", "urine", "stool", "other"]
+          },
+
+          "sampling_context": {
+            "type": "object",
+            "description": "JSON object; e.g. {\"state\":\"resting\"} or {\"fasting\":true}",
+            "additionalProperties": true
+          },
+
+          "value_num": { "type": "number" },
+          "value_text": { "type": ["string", "null"] },
+          "value_json": { "type": "object", "additionalProperties": true },
+
+          "unit": { "type": "string", "minLength": 1 },
+
+          "measured_at": {
+            "type": "string",
+            "description": "ISO8601 datetime with timezone, e.g. 2026-02-10T16:40:00+08:00"
+          },
+
+          "freshness_state": {
+            "type": "string",
+            "enum": ["fresh", "stale", "unknown"]
+          },
+
+          "accuracy_tier": {
+            "type": "string",
+            "enum": ["standard", "estimated", "unknown"]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_latest_observation",
+      "description": "Get the latest observation for a user and biomarker_code. Returns null if not found.",
+      "parameters": {
+        "type": "object",
+        "required": ["user_id", "biomarker_code"],
+        "properties": {
+          "user_id": { "type": "string", "format": "uuid" },
+          "biomarker_code": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "refresh_assessments",
+      "description": "Refresh system assessments for given system_codes (v0 placeholder).",
+      "parameters": {
+        "type": "object",
+        "required": ["user_id", "system_codes"],
+        "properties": {
+          "user_id": { "type": "string", "format": "uuid" },
+          "system_codes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": ["energy", "metabolic"]
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_system_state",
+      "description": "Get system state for a user. Authoritative state should be read from server after refresh.",
+      "parameters": {
+        "type": "object",
+        "required": ["system_code", "user_id"],
+        "properties": {
+          "system_code": { "type": "string", "enum": ["energy", "metabolic"] },
+          "user_id": { "type": "string", "format": "uuid" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_recommendations",
+      "description": "Get v0 recommendations for a user and system_code. Only call when system_state != invisible.",
+      "parameters": {
+        "type": "object",
+        "required": ["user_id", "system_code"],
+        "properties": {
+          "user_id": { "type": "string", "format": "uuid" },
+          "system_code": { "type": "string", "enum": ["energy", "metabolic"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+]

@@ -11,3 +11,16 @@
    - spec/agent_tools.v0.1.json
 
 Violation of these rules breaks system integrity.
+
+
+## One-click Acceptance (Agent Playbook)
+
+Prerequisites:
+- API server is running at `http://127.0.0.1:8000`
+- `.env` has valid `DATABASE_URL`
+
+Run:
+```bash
+pip install -r requirements.txt
+python3 scripts/agent_playbook_v0_1.py
+```
