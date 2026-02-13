@@ -13,27 +13,25 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: xiaoge
-          POSTGRES_PASSWORD: xiaoge
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: xiaoge
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U xiaoge -d xiaoge"
+          --health-cmd="pg_isready -U postgres -d xiaoge"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
 
     env:
-      # 给 FastAPI/asyncpg 用的连接串（CI 内就是 localhost:5432）
-      DATABASE_URL: postgresql://xiaoge:xiaoge@127.0.0.1:5432/xiaoge
-      ENV: ci
+      # 关键：让 psql、uvicorn、pytest 都用同一个 DB
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/xiaoge
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.9"
@@ -43,37 +41,39 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install psql client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-
       - name: Wait for Postgres
         run: |
           for i in {1..30}; do
-            pg_isready -h 127.0.0.1 -p 5432 -U xiaoge -d xiaoge && break
+            pg_isready -h 127.0.0.1 -p 5432 -U postgres -d xiaoge && break
             sleep 2
           done
 
-      - name: Init DB schema
+      - name: Apply schema snapshot
         run: |
-          PGPASSWORD=xiaoge psql -h 127.0.0.1 -p 5432 -U xiaoge -d xiaoge -f spec/xiaoge_v0_schema_snapshot_2026-02-07_updated.sql
+          test -f spec/xiaoge_v0_schema_snapshot.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f spec/xiaoge_v0_schema_snapshot.sql
+          # 验收：必须能查到表
+          psql "$DATABASE_URL" -c "\dt" | grep biomarker_observations
 
-      - name: Start API server
+      - name: Start API (uvicorn)
         run: |
           nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
-          # 等健康检查通过再跑测试
+          # 等 /health/db 通过
           for i in {1..30}; do
-            curl -sf http://127.0.0.1:8000/health && break
+            curl -s http://127.0.0.1:8000/health/db | grep -q connected && exit 0
             sleep 2
           done
+          echo "uvicorn failed to become ready"
+          cat uvicorn.log
+          exit 1
 
-      - name: Pytest
+      - name: Run pytest
         run: |
           pytest -q
 
-      - name: Print uvicorn log on failure
+      - name: Upload logs (on failure)
         if: failure()
-        run: |
-          echo "===== uvicorn.log ====="
-          cat uvicorn.log || true
+        uses: actions/upload-artifact@v4
+        with:
+          name: uvicorn-log
+          path: uvicorn.log
