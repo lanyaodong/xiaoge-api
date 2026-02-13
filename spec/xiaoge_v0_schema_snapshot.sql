@@ -36,7 +36,6 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- Systems
 DO $$ BEGIN
   CREATE TYPE system_code_enum AS ENUM ('metabolic', 'energy', 'cardio', 'musculoskeletal', 'neuro', 'repair_immune');
 EXCEPTION WHEN duplicate_object THEN NULL;
@@ -51,7 +50,6 @@ END $$;
 -- Tables
 -- -------------------------
 
--- Minimal data_sources (optional, but useful)
 CREATE TABLE IF NOT EXISTS data_sources (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text,
@@ -80,11 +78,9 @@ CREATE TABLE IF NOT EXISTS biomarker_observations (
   accuracy_tier accuracy_tier_enum NOT NULL DEFAULT 'unknown'
 );
 
--- Make latest lookup fast in CI
 CREATE INDEX IF NOT EXISTS idx_obs_user_biomarker_measured
   ON biomarker_observations (user_id, biomarker_code, measured_at DESC);
 
--- system assessments
 CREATE TABLE IF NOT EXISTS system_assessments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
@@ -96,7 +92,6 @@ CREATE TABLE IF NOT EXISTS system_assessments (
   UNIQUE (user_id, system_code)
 );
 
--- recommendations (kept flexible with jsonb)
 CREATE TABLE IF NOT EXISTS recommendations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
