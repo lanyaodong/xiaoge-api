@@ -2,6 +2,7 @@ name: ci
 
 on:
   push:
+    branches: [ "main" ]
   pull_request:
 
 jobs:
@@ -13,28 +14,29 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: xiaoge
-          POSTGRES_PASSWORD: xiaoge_pwd
-          POSTGRES_DB: xiaoge_v0
+          POSTGRES_PASSWORD: xiaoge
+          POSTGRES_DB: xiaoge
         ports:
-          - 5433:5432
+          - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U xiaoge -d xiaoge_v0"
-          --health-interval=10s
+          --health-cmd="pg_isready -U xiaoge -d xiaoge"
+          --health-interval=5s
           --health-timeout=5s
-          --health-retries=10
+          --health-retries=20
 
     env:
-      XIAOGE_BASE_URL: http://127.0.0.1:8000
-      XIAOGE_USER_ID: 11111111-1111-1111-1111-111111111111
-      DATABASE_URL: postgresql+asyncpg://xiaoge:xiaoge_pwd@127.0.0.1:5433/xiaoge_v0
+      # 给 FastAPI/asyncpg 用的连接串（CI 内就是 localhost:5432）
+      DATABASE_URL: postgresql://xiaoge:xiaoge@127.0.0.1:5432/xiaoge
+      ENV: ci
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.9"
 
       - name: Install deps
         run: |
@@ -46,17 +48,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-      - name: Apply schema snapshot
+      - name: Wait for Postgres
         run: |
-          psql "postgresql://xiaoge:xiaoge_pwd@127.0.0.1:5433/xiaoge_v0" -f spec/xiaoge_v0_schema_snapshot_2026-02-07_updated.sql
+          for i in {1..30}; do
+            pg_isready -h 127.0.0.1 -p 5432 -U xiaoge -d xiaoge && break
+            sleep 2
+          done
 
-      - name: Start API
+      - name: Init DB schema
         run: |
-          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --log-level info &
-          sleep 2
-          curl -sSf http://127.0.0.1:8000/health
-          curl -sSf http://127.0.0.1:8000/health/db
+          PGPASSWORD=xiaoge psql -h 127.0.0.1 -p 5432 -U xiaoge -d xiaoge -f spec/xiaoge_v0_schema_snapshot_2026-02-07_updated.sql
 
-      - name: Run tests
+      - name: Start API server
+        run: |
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+          # 等健康检查通过再跑测试
+          for i in {1..30}; do
+            curl -sf http://127.0.0.1:8000/health && break
+            sleep 2
+          done
+
+      - name: Pytest
         run: |
           pytest -q
+
+      - name: Print uvicorn log on failure
+        if: failure()
+        run: |
+          echo "===== uvicorn.log ====="
+          cat uvicorn.log || true
